@@ -1,0 +1,1283 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Event Loop Lens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eceff3; --surface:#ffffff; --surface-2:#f5f7fa; --ink:#131820; --muted:#5a6475; --faint:#8b94a3; --line:#d6dbe3;
+  --accent:#0f766e; --accent-ink:#ffffff; --accent-soft:#d5efec;
+  --k-stack:#4338ca; --k-stack-soft:#e3e3fb;
+  --k-api:#475569; --k-api-soft:#e6eaf0;
+  --k-tick:#9333ea; --k-tick-soft:#f1e3fc;
+  --k-micro:#15803d; --k-micro-soft:#dcf3e3;
+  --k-timer:#b45309; --k-timer-soft:#fbead3;
+  --k-io:#1d4ed8; --k-io-soft:#dde7fb;
+  --k-check:#be185d; --k-check-soft:#fbe0ec;
+  --err:#b91c1c; --err-soft:#fde2e2; --warn:#a16207;
+  --code-bg:#f7f8fa; --hl-line:#fff3c4;
+  --tok-kw:#7c3aed; --tok-str:#0f7a3a; --tok-num:#b45309; --tok-com:#8b94a3; --tok-fn:#1d4ed8;
+  --mono:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0c1016; --surface:#141a22; --surface-2:#1a212b; --ink:#e5e9f0; --muted:#98a2b3; --faint:#6b7585; --line:#28303c;
+    --accent:#2dd4bf; --accent-ink:#04201d; --accent-soft:#0f302d;
+    --k-stack:#a5b4fc; --k-stack-soft:#232650;
+    --k-api:#a9b4c4; --k-api-soft:#252d39;
+    --k-tick:#d8b4fe; --k-tick-soft:#33204a;
+    --k-micro:#86efac; --k-micro-soft:#143322;
+    --k-timer:#fcd34d; --k-timer-soft:#3a2a0e;
+    --k-io:#93c5fd; --k-io-soft:#16284a;
+    --k-check:#f9a8d4; --k-check-soft:#3d1a2c;
+    --err:#fca5a5; --err-soft:#3b1717; --warn:#fcd34d;
+    --code-bg:#10151c; --hl-line:#3a3313;
+    --tok-kw:#c4b5fd; --tok-str:#86efac; --tok-num:#fcd34d; --tok-com:#6b7585; --tok-fn:#93c5fd;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0c1016; --surface:#141a22; --surface-2:#1a212b; --ink:#e5e9f0; --muted:#98a2b3; --faint:#6b7585; --line:#28303c;
+  --accent:#2dd4bf; --accent-ink:#04201d; --accent-soft:#0f302d;
+  --k-stack:#a5b4fc; --k-stack-soft:#232650;
+  --k-api:#a9b4c4; --k-api-soft:#252d39;
+  --k-tick:#d8b4fe; --k-tick-soft:#33204a;
+  --k-micro:#86efac; --k-micro-soft:#143322;
+  --k-timer:#fcd34d; --k-timer-soft:#3a2a0e;
+  --k-io:#93c5fd; --k-io-soft:#16284a;
+  --k-check:#f9a8d4; --k-check-soft:#3d1a2c;
+  --err:#fca5a5; --err-soft:#3b1717; --warn:#fcd34d;
+  --code-bg:#10151c; --hl-line:#3a3313;
+  --tok-kw:#c4b5fd; --tok-str:#86efac; --tok-num:#fcd34d; --tok-com:#6b7585; --tok-fn:#93c5fd;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;padding:0 16px;padding-block:14px}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:12px}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto}
+.brand h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
+.brand span{color:var(--muted);font-size:13px}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;height:34px;min-width:34px;padding:0 10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:500}
+.btn:hover{border-color:var(--faint)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:0 14px}
+.btn svg{width:14px;height:14px;fill:currentColor}
+select.btn{padding-right:8px}
+.stepinfo{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:74px;text-align:center}
+.scrub{width:100%;margin:0 0 12px;accent-color:var(--accent)}
+
+.grid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr);}
+@media (min-width:880px){ .grid{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);} .p-out{grid-column:1} .p-viz{grid-row:1 / span 2;grid-column:2} }
+@media (min-width:1320px){ .grid{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,.8fr);} .p-viz{grid-row:auto;grid-column:auto} .p-out{grid-column:auto} }
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.ph h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ph .meta{font-size:12px;color:var(--faint)}
+
+/* editor */
+.editor{display:flex;background:var(--code-bg);position:relative;height:440px;font-family:var(--mono);font-size:13px;line-height:20px}
+@media (min-width:1320px){ .editor{height:calc(100vh - 290px);min-height:420px} }
+.gutter{width:40px;flex:none;overflow:hidden;color:var(--faint);text-align:right;padding:10px 8px 10px 0;user-select:none;border-right:1px solid var(--line);position:relative}
+.gutter-in{will-change:transform}
+.gutter div{height:20px}
+.gutter div.cur{color:var(--ink);font-weight:600}
+.ed-wrap{position:relative;flex:1;min-width:0;overflow:hidden}
+.ed-wrap pre,.ed-wrap textarea{margin:0;padding:10px 12px;font:inherit;line-height:inherit;white-space:pre;tab-size:2;border:0}
+.ed-wrap pre{position:absolute;top:0;left:0;min-width:100%;pointer-events:none;will-change:transform}
+.ed-wrap textarea{position:absolute;inset:0;width:100%;height:100%;resize:none;background:transparent;color:transparent;caret-color:var(--ink);outline:none;overflow:auto}
+.ed-wrap textarea::selection{background:color-mix(in srgb,var(--accent) 30%,transparent);color:transparent}
+.hl-line{position:absolute;left:0;right:0;height:20px;background:var(--hl-line);pointer-events:none;transition:top .12s ease}
+.tk-kw{color:var(--tok-kw)} .tk-str{color:var(--tok-str)} .tk-num{color:var(--tok-num)} .tk-com{color:var(--tok-com);font-style:italic} .tk-fn{color:var(--tok-fn)}
+.apis{border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.apis summary{padding:9px 14px;cursor:pointer;font-weight:500;color:var(--ink)}
+.apis ul{margin:0;padding:0 14px 12px 30px;display:grid;gap:3px}
+.apis code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer}
+.toggle input{accent-color:var(--accent);margin:0}
+.stale{font-size:12px;color:var(--warn);font-weight:500}
+
+/* viz */
+.viz{padding:12px 14px 14px;display:grid;gap:12px}
+.phases{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.pill{font-size:12px;font-weight:500;padding:4px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--surface-2);transition:all .15s}
+.pill.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.pill.micro.on{background:var(--k-micro);border-color:var(--k-micro);color:var(--surface)}
+.arrow{color:var(--faint);font-size:12px}
+.clock{margin-left:auto;font-family:var(--mono);font-size:12px;padding:4px 9px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.narr{border-radius:8px;padding:10px 12px;background:var(--accent-soft);font-size:13.5px;min-height:42px;display:flex;gap:10px;align-items:flex-start}
+.narr.err{background:var(--err-soft);color:var(--err)}
+.narr b{font-family:var(--mono);font-size:12px;font-weight:600;opacity:.7;white-space:nowrap;padding-top:1px}
+.row2{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:560px){ .row2{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)} }
+.box{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);min-width:0}
+.box h3{margin:0 0 8px;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.box h3 small{font-weight:400;letter-spacing:0;text-transform:none;color:var(--faint)}
+.stack{display:flex;flex-direction:column-reverse;gap:4px;min-height:190px;justify-content:flex-start}
+.frame{font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:6px;background:var(--k-stack-soft);color:var(--k-stack);border:1px solid color-mix(in srgb,var(--k-stack) 25%,transparent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frame.api{background:var(--k-api-soft);color:var(--k-api);border-color:color-mix(in srgb,var(--k-api) 25%,transparent)}
+.frame.main{background:transparent;border-style:dashed}
+.frame.top{box-shadow:0 0 0 2px color-mix(in srgb,var(--k-stack) 45%,transparent)}
+.frame .ln{opacity:.6;float:right;margin-left:8px}
+.empty{font-size:12px;color:var(--faint);font-style:italic;padding:4px 2px}
+.apilist{display:grid;gap:6px}
+.op{border-radius:7px;padding:6px 9px;font-size:12px;background:var(--surface);border:1px solid var(--line)}
+.op .t{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono)}
+.op .t span:last-child{color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:4px;border-radius:2px;background:var(--line);margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;transition:width .2s}
+.op.timer .bar i{background:var(--k-timer)} .op.io .bar i{background:var(--k-io)}
+.op.timer .t span:first-child{color:var(--k-timer)} .op.io .t span:first-child{color:var(--k-io)}
+.qgroup{display:grid;gap:8px}
+.qgroup>.cap{font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+.qgroup>.cap small{font-weight:400;letter-spacing:0;text-transform:none;color:var(--faint)}
+.q{display:grid;grid-template-columns:118px minmax(0,1fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:7px 8px;background:var(--surface-2)}
+@media (max-width:480px){ .q{grid-template-columns:minmax(0,1fr)} }
+.q .name{font-size:12px;font-weight:600;display:flex;flex-direction:column;line-height:1.25}
+.q .name small{font-weight:400;color:var(--faint);font-size:11px}
+.chips{display:flex;gap:5px;overflow-x:auto;min-height:34px;align-items:center;padding-bottom:1px}
+.chip{flex:none;font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:6px;border:1px solid;line-height:1.25;max-width:210px}
+.chip b{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip small{display:block;opacity:.7;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q.tick .name{color:var(--k-tick)} .q.tick .chip{background:var(--k-tick-soft);color:var(--k-tick);border-color:color-mix(in srgb,var(--k-tick) 30%,transparent)}
+.q.micro .name{color:var(--k-micro)} .q.micro .chip{background:var(--k-micro-soft);color:var(--k-micro);border-color:color-mix(in srgb,var(--k-micro) 30%,transparent)}
+.q.timer .name{color:var(--k-timer)} .q.timer .chip{background:var(--k-timer-soft);color:var(--k-timer);border-color:color-mix(in srgb,var(--k-timer) 30%,transparent)}
+.q.io .name{color:var(--k-io)} .q.io .chip{background:var(--k-io-soft);color:var(--k-io);border-color:color-mix(in srgb,var(--k-io) 30%,transparent)}
+.q.check .name{color:var(--k-check)} .q.check .chip{background:var(--k-check-soft);color:var(--k-check);border-color:color-mix(in srgb,var(--k-check) 30%,transparent)}
+.q.active{border-color:var(--ink)}
+.chip:first-child::before{content:"next";display:block;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;opacity:.65}
+.fresh{animation:pop .45s ease}
+@keyframes pop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.06)}100%{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion: reduce){ .fresh{animation:none} .hl-line,.bar i,.pill{transition:none} }
+
+/* output */
+.out{font-family:var(--mono);font-size:13px;padding:10px 0;overflow:auto;height:300px;background:var(--code-bg)}
+@media (min-width:1320px){ .out{height:calc(100vh - 210px);min-height:420px} }
+.ol{display:flex;gap:10px;padding:2px 14px;align-items:baseline}
+.ol .tx{white-space:pre-wrap;word-break:break-word;flex:1}
+.ol .ts{color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ol.last{background:var(--hl-line)}
+.ol.error .tx{color:var(--err)} .ol.warn .tx{color:var(--warn)}
+.prompt{color:var(--faint);padding:2px 14px}
+.foot{font-size:12px;color:var(--faint);margin-top:12px}
+</style>
+
+<div class="top">
+  <div class="brand"><h1>Event Loop Lens</h1><span>step through Node.js one tick at a time</span></div>
+  <div class="controls">
+    <select class="btn" id="example" aria-label="Load an example"></select>
+    <button class="btn primary" id="run" title="Run (Ctrl+Enter)"><svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg>Run</button>
+    <button class="btn" id="first" title="First step" aria-label="First step"><svg viewBox="0 0 16 16"><path d="M3 3h2v10H3zM14 3v10L6 8z"/></svg></button>
+    <button class="btn" id="prev" title="Previous step (←)" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M11 3v10L3 8z"/></svg></button>
+    <button class="btn" id="play" title="Play / pause (Space)" aria-label="Play or pause"><svg viewBox="0 0 16 16" id="playIcon"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+    <button class="btn" id="next" title="Next step (→)" aria-label="Next step"><svg viewBox="0 0 16 16"><path d="M5 3v10l8-5z"/></svg></button>
+    <button class="btn" id="last" title="Last step" aria-label="Last step"><svg viewBox="0 0 16 16"><path d="M11 3h2v10h-2zM2 3v10l8-5z"/></svg></button>
+    <span class="stepinfo" id="stepinfo">0 / 0</span>
+    <select class="btn" id="speed" aria-label="Playback speed">
+      <option value="1400">Slow</option><option value="700" selected>Normal</option><option value="260">Fast</option><option value="60">Turbo</option>
+    </select>
+  </div>
+</div>
+<input type="range" class="scrub" id="scrub" min="0" max="0" value="0" aria-label="Scrub through steps">
+
+<div class="grid">
+  <section class="panel p-code">
+    <div class="ph"><h2>Code</h2><span class="stale" id="stale" hidden>Edited — press Run</span><span class="meta" id="codeMeta">Ctrl/⌘ + Enter to run</span></div>
+    <div class="editor">
+      <div class="gutter"><div class="gutter-in" id="gutter"></div></div>
+      <div class="ed-wrap" id="edwrap">
+        <div class="hl-line" id="hlLine" hidden></div>
+        <pre id="hl" aria-hidden="true"></pre>
+        <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="JavaScript code"></textarea>
+      </div>
+    </div>
+    <details class="apis">
+      <summary>What you can use</summary>
+      <ul>
+        <li><code>console.log / warn / error</code></li>
+        <li><code>setTimeout, setInterval, setImmediate</code> (+ clear*)</li>
+        <li><code>process.nextTick, queueMicrotask</code></li>
+        <li><code>Promise</code> (then/catch/finally, all, allSettled, race, any), <code>async/await</code>, top-level <code>await</code></li>
+        <li><code>db.query(sql, [opts], [cb])</code> — mock DB, ~50ms. opts: <code>{ delay: 200, fail: true }</code></li>
+        <li><code>fs.readFile(path, cb)</code>, <code>fs.promises.readFile(path)</code> — ~20ms</li>
+        <li><code>fetch(url)</code> — ~100ms, <code>res.json()</code></li>
+        <li><code>sleep(ms)</code>, <code>require('fs' | 'util' | 'timers/promises')</code></li>
+      </ul>
+    </details>
+  </section>
+
+  <section class="panel p-viz">
+    <div class="ph"><h2>Event loop internals</h2><label class="toggle" title="In real Node, a setTimeout(0) scheduled in the main script fires before setImmediate only if at least 1ms passed before the loop started. It varies from run to run."><input type="checkbox" id="slow"> Script took ≥ 1ms</label></div>
+    <div class="viz">
+      <div class="phases" id="phases"></div>
+      <div class="narr" id="narr"><b id="narrStep">—</b><span id="narrText">Press Run to trace the code.</span></div>
+      <div class="row2">
+        <div class="box"><h3>Call stack <small>V8 · main thread</small></h3><div class="stack" id="stack"></div></div>
+        <div class="box"><h3>Node APIs / libuv <small>running off the main thread</small></h3><div class="apilist" id="apis"></div></div>
+      </div>
+      <div class="qgroup">
+        <div class="cap">Microtasks <small>drained completely after every callback</small></div>
+        <div class="q tick" id="q-ticks"><div class="name">process.nextTick<small>runs first</small></div><div class="chips"></div></div>
+        <div class="q micro" id="q-micro"><div class="name">Promise queue<small>then · await · queueMicrotask</small></div><div class="chips"></div></div>
+      </div>
+      <div class="qgroup">
+        <div class="cap">Macrotasks <small>one event-loop phase each</small></div>
+        <div class="q timer" id="q-timersQ"><div class="name">Timers<small>setTimeout · setInterval</small></div><div class="chips"></div></div>
+        <div class="q io" id="q-pollQ"><div class="name">Poll (I/O)<small>db · fs · fetch callbacks</small></div><div class="chips"></div></div>
+        <div class="q check" id="q-checkQ"><div class="name">Check<small>setImmediate</small></div><div class="chips"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel p-out">
+    <div class="ph"><h2>Output</h2><span class="meta" id="outMeta">stdout</span></div>
+    <div class="out" id="out"><div class="prompt">$ node index.js</div></div>
+  </section>
+</div>
+<p class="foot">Time is simulated: the clock jumps straight to the next timer or I/O completion. Called from the main script, <code>setTimeout(fn, 0)</code> vs <code>setImmediate(fn)</code> order is not guaranteed in real Node: it depends on whether 1ms has passed when the loop starts. By default this tool models a fast start (<code>setImmediate</code> first); tick <em>Script took ≥ 1ms</em> to see the other ordering.</p>
+
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+<script>
+/* Event loop simulation engine.
+ * compile(): instruments user code with Babel so we can see function frames,
+ *            current line, and async/await suspension points.
+ * simulate(): runs the code against a virtual Node.js runtime (own Promise,
+ *            timers, nextTick, setImmediate, mock I/O) and records snapshots.
+ */
+var ELEngine = (function () {
+  'use strict';
+
+  // ---------------------------------------------------------------- compile
+  function instrumentPlugin(api) {
+    var t = api.types;
+
+    function fnName(path) {
+      var n = path.node, p = path.parent;
+      if (n.id && n.id.name) return n.id.name;
+      if ((t.isObjectMethod(n) || t.isClassMethod(n)) && n.key) {
+        if (n.kind === 'constructor') return 'constructor';
+        return n.key.name || String(n.key.value || 'method');
+      }
+      if (t.isVariableDeclarator(p) && t.isIdentifier(p.id)) return p.id.name;
+      if (t.isObjectProperty(p) && p.key) return p.key.name || String(p.key.value);
+      if (t.isClassProperty && t.isClassProperty(p) && p.key) return p.key.name || 'fn';
+      if (t.isAssignmentExpression(p)) {
+        if (t.isIdentifier(p.left)) return p.left.name;
+        if (t.isMemberExpression(p.left) && t.isIdentifier(p.left.property)) return p.left.property.name;
+      }
+      return 'anonymous';
+    }
+
+    function awaitToYield(path) {
+      path.traverse({
+        Function: function (p) { p.skip(); },
+        ForOfStatement: function (p) {
+          if (p.node.await) throw p.buildCodeFrameError('for await...of is not supported in this visualizer');
+        },
+        AwaitExpression: function (p) { p.replaceWith(t.yieldExpression(p.node.argument)); }
+      });
+    }
+
+    function asyncCall(frameExpr, genBody, isArrow) {
+      var gen = t.functionExpression(null, [], genBody, true, false);
+      gen._noinstr = true;
+      return t.callExpression(t.identifier('__async'), [
+        frameExpr, gen, t.thisExpression(),
+        isArrow ? t.arrayExpression([]) : t.identifier('arguments')
+      ]);
+    }
+
+    return {
+      visitor: {
+        Program: function (path) {
+          var tla = false;
+          path.traverse({
+            Function: function (p) { p.skip(); },
+            AwaitExpression: function () { tla = true; },
+            ForOfStatement: function (p) { if (p.node.await) tla = true; }
+          });
+          if (!tla) return;
+          awaitToYield(path);
+          var body = t.blockStatement(path.node.body);
+          path.node.body = [t.returnStatement(asyncCall(t.identifier('__main'), body, true))];
+        },
+        Function: function (path) {
+          var node = path.node;
+          if (node._noinstr || node._done) return;
+          node._done = true;
+          if (node.async && node.generator) throw path.buildCodeFrameError('async generators are not supported in this visualizer');
+          if (node.generator) return; // plain generators: leave alone
+          var line = node.loc ? node.loc.start.line : 0;
+          var name = fnName(path);
+          if (!t.isBlockStatement(node.body)) {
+            node.body = t.blockStatement([t.returnStatement(node.body)]);
+            node.expression = false;
+          }
+          var directives = node.body.directives || [];
+          var inner;
+          if (node.async) {
+            awaitToYield(path.get('body'));
+            inner = [t.returnStatement(asyncCall(t.identifier('__fr'), t.blockStatement(node.body.body), t.isArrowFunctionExpression(node)))];
+            node.async = false;
+          } else {
+            inner = node.body.body;
+          }
+          var enter = t.variableDeclaration('const', [t.variableDeclarator(t.identifier('__fr'),
+            t.callExpression(t.identifier('__enter'), [t.stringLiteral(name), t.numericLiteral(line)]))]);
+          var tryS = t.tryStatement(t.blockStatement(inner), null,
+            t.blockStatement([t.expressionStatement(t.callExpression(t.identifier('__exit'), [t.identifier('__fr')]))]));
+          node.body = t.blockStatement([enter, tryS], directives);
+        },
+        'CallExpression|NewExpression': {
+          exit: function (path) {
+            var n = path.node;
+            if (n._instr || !n.loc) return;
+            var c = n.callee;
+            if (t.isIdentifier(c) && c.name.indexOf('__') === 0) return;
+            if (t.isSuper(c) || t.isImport(c)) return;
+            n._instr = true;
+            path.replaceWith(t.sequenceExpression([
+              t.callExpression(t.identifier('__at'), [t.numericLiteral(n.loc.start.line)]), n
+            ]));
+          }
+        }
+      }
+    };
+  }
+
+  function compile(code) {
+    var B = (typeof Babel !== 'undefined') ? Babel : (typeof globalThis !== 'undefined' && globalThis.Babel);
+    if (!B) throw new Error('Babel failed to load');
+    return B.transform(code, {
+      sourceType: 'script',
+      parserOpts: { allowReturnOutsideFunction: true, allowAwaitOutsideFunction: true },
+      plugins: [instrumentPlugin],
+      comments: false,
+      babelrc: false, configFile: false
+    }).code;
+  }
+
+  // ---------------------------------------------------------------- format
+  function fmt(v, top, depth, seen) {
+    depth = depth || 0; seen = seen || [];
+    if (typeof v === 'string') return top ? v : "'" + v + "'";
+    if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return String(v) + (typeof v === 'bigint' ? 'n' : '');
+    if (v === undefined) return 'undefined';
+    if (v === null) return 'null';
+    if (typeof v === 'symbol') return v.toString();
+    if (typeof v === 'function') return v.__isP ? '[Function: Promise]' : '[Function: ' + (v.name || '(anonymous)') + ']';
+    if (seen.indexOf(v) >= 0) return '[Circular]';
+    if (v instanceof Error) return top ? (v.name + ': ' + v.message) : '[' + v.name + ': ' + v.message + ']';
+    if (v && v.__isPromise) {
+      if (v._state === 'pending') return 'Promise { <pending> }';
+      if (v._state === 'rejected') return 'Promise { <rejected> ' + fmt(v._value, false, depth + 1, seen.concat([v])) + ' }';
+      return 'Promise { ' + fmt(v._value, false, depth + 1, seen.concat([v])) + ' }';
+    }
+    if (depth > 2) return Array.isArray(v) ? '[Array]' : '[Object]';
+    var s2 = seen.concat([v]);
+    if (Array.isArray(v)) {
+      if (!v.length) return '[]';
+      return '[ ' + v.map(function (x) { return fmt(x, false, depth + 1, s2); }).join(', ') + ' ]';
+    }
+    var keys = Object.keys(v);
+    var ctor = v.constructor && v.constructor !== Object && v.constructor.name ? v.constructor.name + ' ' : '';
+    if (!keys.length) return ctor + '{}';
+    return ctor + '{ ' + keys.map(function (k) {
+      var key = /^[A-Za-z_$][\w$]*$/.test(k) ? k : "'" + k + "'";
+      return key + ': ' + fmt(v[k], false, depth + 1, s2);
+    }).join(', ') + ' }';
+  }
+  function short(s, n) { n = n || 28; s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function argPreview(args) { return args.map(function (a) { return short(fmt(a, false), 24); }).join(', '); }
+
+  // ---------------------------------------------------------------- simulate
+  function simulate(code, opts) {
+    opts = opts || {};
+    var MAX_SNAPS = opts.maxSnaps || 4000;
+    var MAX_STEPS = 300000;
+    var MAX_TIME = 20000;
+    var MAX_MACRO = 800;
+
+    var compiled = compile(code);
+
+    var uid = 0;
+    var S = {
+      stack: [], ticks: [], micro: [], timersQ: [], pollQ: [], checkQ: [],
+      apis: [], phase: 'main', inMicro: false, now: 0, output: []
+    };
+    var snaps = [], truncated = false, halted = false, steps = 0, macroCount = 0;
+    var unhandled = [];
+
+    function lineNow() {
+      for (var i = S.stack.length - 1; i >= 0; i--) if (S.stack[i].line) return S.stack[i].line;
+      return 0;
+    }
+    function mapQ(q) { return q.map(function (it) { return { id: it.id, label: it.label, kind: it.kind, sub: it.sub }; }); }
+    function snap(desc, hl, extra) {
+      if (snaps.length >= MAX_SNAPS) { truncated = true; return; }
+      snaps.push({
+        stack: S.stack.map(function (f) { return { id: f.id, label: f.label, kind: f.kind, line: f.line }; }),
+        ticks: mapQ(S.ticks), micro: mapQ(S.micro), timersQ: mapQ(S.timersQ), pollQ: mapQ(S.pollQ), checkQ: mapQ(S.checkQ),
+        apis: S.apis.map(function (a) { return { id: a.id, label: a.label, kind: a.kind, start: a.start, end: a.end, interval: !!a.interval }; }),
+        phase: S.phase, inMicro: S.inMicro, now: S.now, out: S.output.length,
+        line: lineNow(), desc: desc, hl: hl || null, tone: extra || null
+      });
+    }
+
+    function pushFrame(f) { S.stack.push(f); }
+    function popFrame(f) {
+      var i = S.stack.lastIndexOf(f);
+      if (i >= 0) S.stack.splice(i, 1);
+    }
+    function mkFrame(label, kind, line) { return { id: ++uid, label: label, kind: kind, line: line || 0 }; }
+
+    // --- instrumentation hooks
+    function __enter(name, line) {
+      var f = mkFrame(name + '()', 'fn', line);
+      pushFrame(f);
+      snap('Call ' + name + '() — pushed onto the call stack', f.id);
+      return f;
+    }
+    function __exit(f) {
+      var had = S.stack.indexOf(f) >= 0;
+      popFrame(f);
+      if (had) snap(f.label + ' returns — popped off the call stack');
+    }
+    function __at(line) {
+      if (++steps > MAX_STEPS) throw new SimLimit('Execution limit reached — is there an infinite loop?');
+      for (var i = S.stack.length - 1; i >= 0; i--) {
+        if (S.stack[i].kind !== 'api') { S.stack[i].line = line; break; }
+      }
+    }
+    function SimLimit(msg) { this.message = msg; this.name = 'SimLimit'; }
+
+    function api(label, fn) {
+      var f = mkFrame(label, 'api', lineNow());
+      pushFrame(f);
+      try { return fn(f); } finally { popFrame(f); }
+    }
+
+    // --- queues
+    function enqueue(qname, item, desc) {
+      item.id = item.id || ++uid;
+      S[qname].push(item);
+      snap(desc, item.id);
+      return item;
+    }
+
+    // --- Promise implementation (spec-accurate job ordering)
+    var INTERNAL = {};
+    var pid = 0;
+    function P(executor) {
+      if (!(this instanceof P)) throw new TypeError("Class constructor Promise cannot be invoked without 'new'");
+      this._state = 'pending'; this._value = undefined; this._reactions = []; this._handled = false; this._id = ++pid;
+      if (executor === INTERNAL) return;
+      if (typeof executor !== 'function') throw new TypeError('Promise resolver ' + fmt(executor) + ' is not a function');
+      var self = this;
+      var fns = resolvingFns(self, true);
+      api('new Promise(executor)', function (f) {
+        snap('new Promise() runs its executor synchronously', f.id);
+        try { executor(fns.resolve, fns.reject); } catch (e) { if (e instanceof SimLimit) throw e; fns.reject(e); }
+      });
+    }
+    P.prototype.__isPromise = true;
+    P.__isP = true;
+    Object.defineProperty(P, 'name', { value: 'Promise' });
+    try { Object.defineProperty(P.prototype, Symbol.toStringTag, { value: 'Promise' }); } catch (e) {}
+
+    function newCap() {
+      var p = new P(INTERNAL);
+      var f = resolvingFns(p, false);
+      return { promise: p, resolve: f.resolve, reject: f.reject };
+    }
+    function resolvingFns(p, visible) {
+      var done = false;
+      function resolve(x) {
+        if (visible) {
+          return api('resolve(' + argPreview([x]) + ')', function (f) {
+            if (done) { snap('resolve() ignored — promise already settled', f.id); return; }
+            done = true; resolvePromise(p, x, true);
+          });
+        }
+        if (done) return; done = true; resolvePromise(p, x, false);
+      }
+      function reject(r) {
+        if (visible) {
+          return api('reject(' + argPreview([r]) + ')', function (f) {
+            if (done) { snap('reject() ignored — promise already settled', f.id); return; }
+            done = true; rejectPromise(p, r, true);
+          });
+        }
+        if (done) return; done = true; rejectPromise(p, r, false);
+      }
+      return { resolve: resolve, reject: reject };
+    }
+    function resolvePromise(p, x, loud) {
+      if (x === p) return rejectPromise(p, new TypeError('Chaining cycle detected for promise'), loud);
+      if (x !== null && (typeof x === 'object' || typeof x === 'function')) {
+        var then;
+        try { then = x.then; } catch (e) { return rejectPromise(p, e, loud); }
+        if (typeof then === 'function') {
+          enqueue('micro', {
+            label: 'adopt thenable', kind: 'micro', sub: 'resolve(p) waits 1 tick',
+            run: function () {
+              var fns = resolvingFns(p, false);
+              try { then.call(x, fns.resolve, fns.reject); } catch (e) { if (e instanceof SimLimit) throw e; fns.reject(e); }
+            }
+          }, 'Resolved with a promise/thenable — a job is queued to adopt its state');
+          return;
+        }
+      }
+      settle(p, 'fulfilled', x, loud);
+    }
+    function rejectPromise(p, r, loud) {
+      settle(p, 'rejected', r, loud);
+      if (!p._handled) unhandled.push(p);
+    }
+    function settle(p, state, value, loud) {
+      if (p._state !== 'pending') return;
+      p._state = state; p._value = value;
+      var rs = p._reactions; p._reactions = [];
+      if (loud || rs.length) {
+        if (!rs.length) snap('Promise ' + state + ' with ' + short(fmt(value), 30) + ' — no .then() handlers yet');
+      }
+      rs.forEach(function (r) { queueReaction(p, r); });
+    }
+    function queueReaction(p, r) {
+      var handler = p._state === 'fulfilled' ? r.onF : r.onR;
+      var label = r.label;
+      var sub = typeof handler === 'function' ? r.sub : 'no handler → pass through';
+      enqueue('micro', {
+        label: label, kind: 'micro', sub: sub,
+        run: function () {
+          if (typeof handler !== 'function') {
+            if (p._state === 'fulfilled') r.cap.resolve(p._value); else r.cap.reject(p._value);
+            return;
+          }
+          var v;
+          try { v = handler(p._value); } catch (e) { if (e instanceof SimLimit) throw e; r.cap.reject(e); return; }
+          r.cap.resolve(v);
+        }
+      }, 'Promise ' + p._state + ' → "' + label + '" queued in the Promise microtask queue');
+    }
+    function nameOf(fn) { return typeof fn === 'function' ? (fn.name || 'anonymous') : '—'; }
+    function thenImpl(p, onF, onR, label, sub, silent) {
+      var cap = newCap();
+      if (p._state === 'rejected' && !p._handled) {
+        var i = unhandled.indexOf(p); if (i >= 0) unhandled.splice(i, 1);
+      }
+      p._handled = true;
+      var r = { onF: onF, onR: onR, cap: cap, label: label, sub: sub };
+      if (p._state === 'pending') {
+        p._reactions.push(r);
+        if (!silent) snap(label + ' registered — waits until the promise settles');
+      } else queueReaction(p, r);
+      return cap.promise;
+    }
+    P.prototype.then = function (onF, onR) {
+      var p = this, line = lineNow();
+      return api('.then()', function () {
+        var fn = typeof onF === 'function' ? onF : onR;
+        return thenImpl(p, onF, onR, '.then(' + nameOf(fn) + ')', 'line ' + line);
+      });
+    };
+    P.prototype.catch = function (onR) {
+      var p = this, line = lineNow();
+      return api('.catch()', function () { return thenImpl(p, undefined, onR, '.catch(' + nameOf(onR) + ')', 'line ' + line); });
+    };
+    P.prototype.finally = function (onFin) {
+      var p = this, line = lineNow();
+      if (typeof onFin !== 'function') return this.then(onFin, onFin);
+      return api('.finally()', function () {
+        return thenImpl(p,
+          function (v) { var r = onFin(); return thenImpl(P.resolve(r), function () { return v; }, undefined, 'finally → pass value', '', true); },
+          function (e) { var r = onFin(); return thenImpl(P.resolve(r), function () { throw e; }, undefined, 'finally → rethrow', '', true); },
+          '.finally(' + nameOf(onFin) + ')', 'line ' + line);
+      });
+    };
+    P.resolve = function (x) {
+      if (x && x.__isPromise && x.constructor === P) return x;
+      var c = newCap(); c.resolve(x); return c.promise;
+    };
+    P.reject = function (r) { var c = newCap(); c.reject(r); return c.promise; };
+    function iter(list) { return Array.from(list); }
+    P.all = function (list) {
+      var c = newCap(), items = iter(list), res = new Array(items.length), left = items.length;
+      if (!left) c.resolve(res);
+      items.forEach(function (it, i) {
+        thenImpl(P.resolve(it), function (v) { res[i] = v; if (--left === 0) c.resolve(res); }, c.reject, 'Promise.all item ' + i, '', true);
+      });
+      return c.promise;
+    };
+    P.allSettled = function (list) {
+      var c = newCap(), items = iter(list), res = new Array(items.length), left = items.length;
+      if (!left) c.resolve(res);
+      items.forEach(function (it, i) {
+        thenImpl(P.resolve(it),
+          function (v) { res[i] = { status: 'fulfilled', value: v }; if (--left === 0) c.resolve(res); },
+          function (e) { res[i] = { status: 'rejected', reason: e }; if (--left === 0) c.resolve(res); },
+          'Promise.allSettled item ' + i, '', true);
+      });
+      return c.promise;
+    };
+    P.race = function (list) {
+      var c = newCap();
+      iter(list).forEach(function (it, i) { thenImpl(P.resolve(it), c.resolve, c.reject, 'Promise.race item ' + i, '', true); });
+      return c.promise;
+    };
+    P.any = function (list) {
+      var c = newCap(), items = iter(list), errs = new Array(items.length), left = items.length;
+      if (!left) c.reject(new Error('All promises were rejected'));
+      items.forEach(function (it, i) {
+        thenImpl(P.resolve(it), c.resolve, function (e) { errs[i] = e; if (--left === 0) { var ag = new Error('All promises were rejected'); ag.name = 'AggregateError'; ag.errors = errs; c.reject(ag); } }, 'Promise.any item ' + i, '', true);
+      });
+      return c.promise;
+    };
+
+    // --- async/await driver
+    function __async(frame, genFn, self, args) {
+      var gen = genFn.apply(self, args);
+      var c = newCap();
+      function step(key, arg, reenter) {
+        var r;
+        if (reenter) { pushFrame(frame); snap(frame.label + ' resumes after await', frame.id); }
+        try { r = gen[key](arg); }
+        catch (e) {
+          if (e instanceof SimLimit) throw e;
+          if (reenter) { popFrame(frame); snap(frame.label + ' threw — its promise rejects'); }
+          c.reject(e); return;
+        }
+        if (r.done) {
+          if (reenter) { popFrame(frame); snap(frame.label + ' finished — resolves its promise'); }
+          c.resolve(r.value);
+          return;
+        }
+        var awaited = P.resolve(r.value);
+        if (!reenter) snap('await: ' + frame.label + ' pauses; the rest of the function becomes a microtask', frame.id);
+        thenImpl(awaited,
+          function (v) { step('next', v, true); },
+          function (e) { step('throw', e, true); },
+          'resume ' + frame.label, 'after await · line ' + frame.line, true);
+        if (reenter) { popFrame(frame); snap(frame.label + ' paused at await — popped off the stack'); }
+      }
+      step('next', undefined, false);
+      return c.promise;
+    }
+
+    // --- timers
+    function addTimer(fn, delay, args, interval) {
+      delay = Number(delay); if (!(delay >= 1) || !isFinite(delay)) delay = 1;
+      delay = Math.min(Math.floor(delay), 2147483647);
+      var tm = { id: ++uid, kind: 'timer', label: (interval ? 'setInterval' : 'setTimeout') + '(' + nameOf(fn) + ', ' + delay + ')',
+        start: S.now, end: S.now + delay, delay: delay, fn: fn, args: args, interval: interval, seq: uid };
+      S.apis.push(tm);
+      snap('Timer handed to libuv — callback fires after ≥ ' + delay + 'ms', tm.id);
+      return new Timeout(tm);
+    }
+    function Timeout(tm) { this._tm = tm; }
+    Timeout.prototype.ref = Timeout.prototype.unref = function () { return this; };
+    Timeout.prototype[Symbol.toPrimitive] = function () { return this._tm.id; };
+    function findTimer(h) {
+      var id = h && h._tm ? h._tm.id : Number(h);
+      return id;
+    }
+    function clearTimer(h) {
+      var id = findTimer(h);
+      var i;
+      for (i = 0; i < S.apis.length; i++) if (S.apis[i].id === id) { S.apis[i].cleared = true; S.apis.splice(i, 1); snap('Timer cleared'); return; }
+      for (i = 0; i < S.timersQ.length; i++) if (S.timersQ[i].tm.id === id) { S.timersQ[i].tm.cleared = true; S.timersQ.splice(i, 1); snap('Timer cleared'); return; }
+      if (h && h._tm) h._tm.cleared = true;
+    }
+    function setTimeout_(fn) {
+      var args = [].slice.call(arguments, 2), d = arguments[1];
+      return api('setTimeout(' + nameOf(fn) + (d !== undefined ? ', ' + d : '') + ')', function () {
+        if (typeof fn !== 'function') throw new TypeError('The "callback" argument must be of type function. Received ' + fmt(fn));
+        return addTimer(fn, d, args, false);
+      });
+    }
+    function setInterval_(fn, d) {
+      var args = [].slice.call(arguments, 2);
+      return api('setInterval(' + nameOf(fn) + ', ' + d + ')', function () {
+        if (typeof fn !== 'function') throw new TypeError('The "callback" argument must be of type function');
+        return addTimer(fn, d, args, true);
+      });
+    }
+    function clearTimeout_(h) { if (h == null) return; api('clearTimeout()', function () { clearTimer(h); }); }
+
+    function setImmediate_(fn) {
+      var args = [].slice.call(arguments, 1);
+      return api('setImmediate(' + nameOf(fn) + ')', function () {
+        if (typeof fn !== 'function') throw new TypeError('The "callback" argument must be of type function');
+        var it = enqueue('checkQ', { label: 'setImmediate(' + nameOf(fn) + ')', kind: 'check', sub: 'line ' + lineNow(),
+          run: function () { fn.apply(null, args); } }, 'setImmediate callback queued for the Check phase');
+        return { _imm: it, ref: function () { return this; }, unref: function () { return this; } };
+      });
+    }
+    function clearImmediate_(h) {
+      if (!h || !h._imm) return;
+      api('clearImmediate()', function () {
+        var i = S.checkQ.indexOf(h._imm); if (i >= 0) { S.checkQ.splice(i, 1); snap('Immediate cleared'); }
+      });
+    }
+    function nextTick_(fn) {
+      var args = [].slice.call(arguments, 1);
+      return api('process.nextTick(' + nameOf(fn) + ')', function () {
+        if (typeof fn !== 'function') throw new TypeError('The "callback" argument must be of type function');
+        enqueue('ticks', { label: 'nextTick(' + nameOf(fn) + ')', kind: 'tick', sub: 'line ' + lineNow(),
+          run: function () { fn.apply(null, args); } }, 'Callback queued in the process.nextTick queue');
+      });
+    }
+    function queueMicrotask_(fn) {
+      return api('queueMicrotask(' + nameOf(fn) + ')', function () {
+        if (typeof fn !== 'function') throw new TypeError('The "callback" argument must be of type function');
+        enqueue('micro', { label: 'queueMicrotask(' + nameOf(fn) + ')', kind: 'micro', sub: 'line ' + lineNow(),
+          run: function () { fn(); } }, 'Callback queued in the microtask queue');
+      });
+    }
+
+    // --- mock I/O
+    function ioOp(label, kindLabel, duration, finish) {
+      duration = Math.max(1, Math.floor(Number(duration) || 1));
+      var op = { id: ++uid, kind: 'io', label: label, start: S.now, end: S.now + duration, seq: uid, finish: finish, kindLabel: kindLabel };
+      S.apis.push(op);
+      snap(kindLabel + ' handed off to libuv/OS — main thread keeps going (~' + duration + 'ms)', op.id);
+      return op;
+    }
+    function splitArgs(args) {
+      var cb = null, o = {};
+      args.forEach(function (a) {
+        if (typeof a === 'function') cb = a;
+        else if (typeof a === 'number') o.delay = a;
+        else if (a && typeof a === 'object' && !Array.isArray(a)) Object.keys(a).forEach(function (k) { o[k] = a[k]; });
+        else if (Array.isArray(a)) o.params = a;
+      });
+      return { cb: cb, o: o };
+    }
+    function fakeRows(sql) {
+      var s = String(sql || '').toLowerCase();
+      if (/^\s*(insert|update|delete)/.test(s)) return { affectedRows: 1 };
+      if (/count\(/.test(s)) return [{ count: 42 }];
+      return [{ id: 1, name: 'Asha' }, { id: 2, name: 'Rohan' }];
+    }
+    function ioCall(apiLabel, shortLabel, defaultDelay, args, makeResult) {
+      var sa = splitArgs(args), cb = sa.cb, o = sa.o;
+      var delay = o.delay != null ? o.delay : defaultDelay;
+      return api(apiLabel, function () {
+        var cap = cb ? null : newCap();
+        ioOp(shortLabel, shortLabel, delay, function () {
+          var err = o.fail ? new Error(typeof o.fail === 'string' ? o.fail : shortLabel + ' failed') : null;
+          var res = err ? undefined : (o.result !== undefined ? o.result : makeResult());
+          if (cb) return { label: shortLabel + ' callback', sub: 'cb(' + (err ? 'err' : 'null, result') + ')', run: function () { cb(err, res); } };
+          return { label: shortLabel + ' done', sub: err ? 'reject promise' : 'resolve promise',
+            run: function () { if (err) cap.reject(err); else cap.resolve(res); } };
+        });
+        return cap ? cap.promise : undefined;
+      });
+    }
+    var db = {
+      query: function (sql) {
+        var args = [].slice.call(arguments, 1);
+        return ioCall('db.query(' + short(fmt(sql), 22) + ')', 'db.query', 50, args, function () { return fakeRows(sql); });
+      }
+    };
+    db.execute = db.query;
+    function readFile(path) {
+      var args = [].slice.call(arguments, 1);
+      return ioCall('fs.readFile(' + short(fmt(path), 18) + ')', 'fs.readFile', 20, args, function () { return 'contents of ' + path; });
+    }
+    function writeFile(path) {
+      var args = [].slice.call(arguments, 2);
+      return ioCall('fs.writeFile(' + short(fmt(path), 18) + ')', 'fs.writeFile', 25, args, function () { return undefined; });
+    }
+    var fs = {
+      readFile: readFile, writeFile: writeFile,
+      readFileSync: function (p) { return api('fs.readFileSync(' + short(fmt(p), 16) + ')', function (f) { snap('Synchronous read — blocks the main thread', f.id); return 'contents of ' + p; }); },
+      promises: {
+        readFile: function (p) { var a = [].slice.call(arguments, 1).filter(function (x) { return typeof x !== 'function'; }); return readFile.apply(null, [p].concat(a)); },
+        writeFile: function (p, d) { var a = [].slice.call(arguments, 2).filter(function (x) { return typeof x !== 'function'; }); return writeFile.apply(null, [p, d].concat(a)); }
+      }
+    };
+    function fetch_(url, init) {
+      init = init || {};
+      return ioCall('fetch(' + short(fmt(url), 22) + ')', 'fetch', 100, [init], function () {
+        var body = { url: String(url), ok: true, data: 'mock response' };
+        return {
+          ok: true, status: 200, url: String(url),
+          json: function () { return P.resolve(body); },
+          text: function () { return P.resolve(JSON.stringify(body)); }
+        };
+      });
+    }
+    function sleep(ms) {
+      return api('sleep(' + ms + ')', function () {
+        var c = newCap();
+        addTimer(function () { c.resolve(); }, ms, [], false);
+        return c.promise;
+      });
+    }
+    function require_(name) {
+      if (name === 'fs' || name === 'node:fs') return fs;
+      if (name === 'fs/promises' || name === 'node:fs/promises') return fs.promises;
+      if (name === 'timers/promises' || name === 'node:timers/promises') return { setTimeout: function (ms, v) { return sleep(ms).then(function () { return v; }); } };
+      if (name === 'util' || name === 'node:util') return { inspect: function (v) { return fmt(v); }, promisify: promisify };
+      throw new Error("Cannot find module '" + name + "' (the visualizer provides fs, fs/promises, util, timers/promises)");
+    }
+    function promisify(fn) {
+      return function () {
+        var args = [].slice.call(arguments), self = this;
+        return new P(function (res, rej) { fn.apply(self, args.concat([function (e, v) { if (e) rej(e); else res(v); }])); });
+      };
+    }
+
+    // --- console
+    function out(kind, args) {
+      var text = args.map(function (a) { return fmt(a, true); }).join(' ');
+      return api('console.' + kind + '(' + argPreview(args) + ')', function (f) {
+        S.output.push({ kind: kind, text: text, t: S.now });
+        snap('Prints "' + short(text, 40) + '"', f.id, 'out');
+      });
+    }
+    var console_ = {
+      log: function () { out('log', [].slice.call(arguments)); },
+      info: function () { out('info', [].slice.call(arguments)); },
+      warn: function () { out('warn', [].slice.call(arguments)); },
+      error: function () { out('error', [].slice.call(arguments)); },
+      debug: function () { out('debug', [].slice.call(arguments)); }
+    };
+    var process_ = {
+      nextTick: nextTick_,
+      hrtime: { bigint: function () { return BigInt(S.now) * 1000000n; } },
+      env: { NODE_ENV: 'development' },
+      version: 'v22.0.0',
+      exit: function () { throw new ExitSignal(); },
+      on: function () {}
+    };
+    function ExitSignal() {}
+    var DateMock = function () { return new Date(1700000000000 + S.now); };
+    DateMock.now = function () { return 1700000000000 + S.now; };
+    var perf = { now: function () { return S.now; } };
+
+    // --- running items
+    function crash(e) {
+      if (e instanceof ExitSignal) { halted = true; snap('process.exit() — the process stops immediately, pending callbacks never run', null, 'exit'); return; }
+      var msg = e instanceof SimLimit ? e.message : ('Uncaught ' + (e && e.name ? e.name + ': ' + e.message : fmt(e)));
+      S.output.push({ kind: 'error', text: msg, t: S.now });
+      halted = true;
+      snap(e instanceof SimLimit ? msg : 'Uncaught exception — the Node.js process crashes', null, 'err');
+    }
+    function runItem(item) {
+      try { item.run(); }
+      catch (e) { S.stack.length = 0; crash(e); }
+      if (S.stack.length && !halted) S.stack.length = 0;
+    }
+    function checkUnhandled() {
+      if (halted) return;
+      var still = unhandled.filter(function (p) { return !p._handled && p._state === 'rejected'; });
+      unhandled = [];
+      if (still.length) {
+        var r = still[0]._value;
+        S.output.push({ kind: 'error', text: 'Uncaught (in promise) ' + (r && r.name ? r.name + ': ' + r.message : fmt(r)), t: S.now });
+        halted = true;
+        snap('Unhandled promise rejection — Node.js (v15+) crashes the process', null, 'err');
+      }
+    }
+    function drainMicro() {
+      if (halted) return;
+      if (!S.ticks.length && !S.micro.length) { checkUnhandled(); return; }
+      var prev = S.inMicro; S.inMicro = true;
+      snap('Call stack is empty → drain process.nextTick queue, then the Promise microtask queue');
+      do {
+        while (S.ticks.length && !halted) {
+          var it = S.ticks.shift();
+          snap('Run nextTick callback "' + it.label + '"', it.id);
+          runItem(it);
+        }
+        while (S.micro.length && !halted) {
+          var m = S.micro.shift();
+          snap('Run microtask "' + m.label + '"', m.id);
+          runItem(m);
+        }
+      } while (S.ticks.length && !halted);
+      S.inMicro = prev;
+      checkUnhandled();
+    }
+
+    function advanceTo(t) {
+      S.now = Math.max(S.now, t);
+      var moved = [];
+      // I/O first by completion time
+      var done = S.apis.filter(function (a) { return a.end <= S.now; }).sort(function (a, b) { return a.end - b.end || a.seq - b.seq; });
+      done.forEach(function (a) {
+        S.apis.splice(S.apis.indexOf(a), 1);
+        if (a.kind === 'io') {
+          var item = a.finish(); item.kind = 'io'; item.id = ++uid;
+          S.pollQ.push(item); moved.push(item.id);
+          snap(a.label + ' finished at ' + a.end + 'ms → its callback waits in the Poll (I/O) queue', item.id);
+        } else {
+          var ti = { id: ++uid, kind: 'timer', label: a.label.replace(/^(setTimeout|setInterval)/, '$1'), sub: 'due ' + a.end + 'ms', tm: a,
+            run: (function (tm) { return function () { tm.fn.apply(null, tm.args); }; })(a) };
+          S.timersQ.push(ti); moved.push(ti.id);
+          snap('Timer expired (' + a.end + 'ms) → callback waits in the Timers queue', ti.id);
+        }
+      });
+      return moved;
+    }
+    function nextDue() {
+      var m = Infinity;
+      S.apis.forEach(function (a) { if (a.end < m) m = a.end; });
+      return m;
+    }
+    function hasWork() {
+      return S.apis.length || S.timersQ.length || S.pollQ.length || S.checkQ.length || S.ticks.length || S.micro.length;
+    }
+    function setPhase(p, desc) { S.phase = p; snap(desc); }
+    function macro() {
+      if (++macroCount > MAX_MACRO) { throw new SimLimit('Simulation limit reached (too many callbacks — a setInterval that never stops?)'); }
+    }
+
+    function loop() {
+      var iter = 0;
+      if (opts.slowStart) {
+        S.now = Math.max(S.now, 1);
+        snap('Startup + script took ≥ 1ms, so the clock reads ' + S.now + 'ms when the loop begins');
+      }
+      while (!halted && hasWork()) {
+        iter++;
+        // TIMERS
+        setPhase('timers', 'Event loop tick ' + iter + ' → Timers phase (t=' + S.now + 'ms)');
+        advanceTo(S.now);
+        if (!S.timersQ.length) {
+          var pend = S.apis.filter(function (a) { return a.kind === 'timer'; });
+          if (pend.length) snap('No timer has expired yet (clock ' + S.now + 'ms, next due ' + Math.min.apply(null, pend.map(function (a) { return a.end; })) + 'ms) → move on');
+        }
+        var batch = S.timersQ.length;
+        while (batch-- > 0 && S.timersQ.length && !halted) {
+          var ti = S.timersQ.shift();
+          if (ti.tm.cleared) continue;
+          macro();
+          snap('Run timer callback "' + ti.label + '"', ti.id);
+          runItem(ti);
+          if (ti.tm.interval && !ti.tm.cleared && !halted) {
+            ti.tm.start = S.now; ti.tm.end = S.now + ti.tm.delay; ti.tm.seq = ++uid;
+            S.apis.push(ti.tm);
+            snap('setInterval re-arms its timer for ' + ti.tm.end + 'ms', ti.tm.id);
+          }
+          drainMicro();
+        }
+        if (halted) break;
+        // PENDING (not simulated separately)
+        S.phase = 'pending';
+        // POLL
+        setPhase('poll', 'Poll phase — run completed I/O callbacks');
+        var ran = false;
+        var runPoll = function () {
+          while (S.pollQ.length && !halted) {
+            var it = S.pollQ.shift();
+            macro();
+            snap('Run I/O callback "' + it.label + '"', it.id);
+            runItem(it); ran = true;
+            drainMicro();
+          }
+        };
+        runPoll();
+        if (halted) break;
+        if (!S.checkQ.length && !S.timersQ.length && !S.ticks.length && !S.micro.length) {
+          var nd = nextDue();
+          if (nd !== Infinity) {
+            if (nd > MAX_TIME) { throw new SimLimit('Stopped at ' + MAX_TIME + 'ms of simulated time'); }
+            snap('Nothing ready — the loop blocks in Poll, waiting until ' + nd + 'ms');
+            advanceTo(nd);
+            runPoll();
+            if (halted) break;
+          }
+        }
+        // CHECK
+        if (S.checkQ.length) {
+          setPhase('check', 'Check phase — run setImmediate callbacks');
+          var cb = S.checkQ.length;
+          while (cb-- > 0 && S.checkQ.length && !halted) {
+            var c = S.checkQ.shift();
+            macro();
+            snap('Run "' + c.label + '"', c.id);
+            runItem(c);
+            drainMicro();
+          }
+        } else { S.phase = 'check'; }
+        if (halted) break;
+        S.phase = 'close';
+      }
+    }
+
+    // --- go
+    var env = {
+      console: console_, setTimeout: setTimeout_, clearTimeout: clearTimeout_, setInterval: setInterval_, clearInterval: clearTimeout_,
+      setImmediate: setImmediate_, clearImmediate: clearImmediate_, queueMicrotask: queueMicrotask_, process: process_,
+      Promise: P, db: db, fs: fs, fetch: fetch_, sleep: sleep, require: require_, Date: DateMock, performance: perf,
+      __enter: __enter, __exit: __exit, __at: __at, __async: __async
+    };
+    var names = Object.keys(env).concat(['__main']);
+    var fn;
+    try {
+      // env lives in an outer scope so user code may redeclare fs, db, sleep, etc.
+      fn = new Function('__env', 'var ' + names.map(function (n) { return n + ' = __env.' + n; }).join(', ') +
+        ';\nreturn (function () {\n' + compiled + '\n}).call(undefined);');
+    } catch (e) { throw e; }
+
+    var mainFrame = mkFrame('main()', 'main', 1);
+    env.__main = mainFrame;
+    snap('Ready. Node starts executing your script');
+    pushFrame(mainFrame);
+    snap('The whole script runs as main() on the call stack', mainFrame.id);
+    try {
+      fn(env);
+      popFrame(mainFrame);
+      S.stack.length = 0;
+      snap('Synchronous code finished — main() popped, call stack is empty');
+      drainMicro();
+      if (!halted) loop();
+    } catch (e) {
+      S.stack.length = 0;
+      if (!halted) crash(e);
+    }
+    S.phase = halted ? S.phase : 'done';
+    S.inMicro = false;
+    if (!halted) snap('No timers, I/O or queued callbacks left — the event loop exits and the process ends', null, 'done');
+    if (truncated) {
+      // keep final state visible even if snapshots overflowed
+      snaps.pop();
+      MAX_SNAPS = Infinity;
+      snap('Trace truncated after ' + snaps.length + ' steps; showing the final state', null, 'err');
+    }
+    return { snaps: snaps, output: S.output, truncated: truncated };
+  }
+
+  return { compile: compile, simulate: simulate, format: fmt };
+})();
+if (typeof module !== 'undefined') module.exports = ELEngine;
+
+</script>
+<script>
+(function(){
+  var EXAMPLES = [
+    { name: 'Your example', code:
+"console.log(1);\n\nsetTimeout(() => console.log(2));\n\nconst p = new Promise((resolve, reject) => {\n  return resolve(3);\n});\np.then((value) => console.log(value));\n\ndb.query('SELECT * FROM users').then((rows) => {\n  console.log('db rows:', rows.length);\n});\n\nconsole.log(4);\n" },
+    { name: 'nextTick vs Promise vs timers', code:
+"console.log('script start');\n\nsetTimeout(() => console.log('setTimeout'), 0);\nsetImmediate(() => console.log('setImmediate'));\n\nPromise.resolve().then(() => console.log('promise 1'));\nprocess.nextTick(() => console.log('nextTick 1'));\n\nPromise.resolve().then(() => {\n  console.log('promise 2');\n  process.nextTick(() => console.log('nextTick inside promise'));\n});\n\nprocess.nextTick(() => console.log('nextTick 2'));\n\nconsole.log('script end');\n" },
+    { name: 'async / await', code:
+"async function getUser(id) {\n  console.log('getUser start', id);\n  const rows = await db.query('SELECT * FROM users WHERE id = ?', [id]);\n  console.log('got rows', rows.length);\n  return rows[0];\n}\n\nasync function main() {\n  console.log('main start');\n  const user = await getUser(1);\n  console.log('user:', user);\n}\n\nmain();\nPromise.resolve().then(() => console.log('then runs while main() awaits'));\nconsole.log('sync end');\n" },
+    { name: 'setTimeout vs setImmediate (main script)', code:
+"// From the main script this order depends on startup time.\n// Toggle \"Script took ≥ 1ms\" to see both outcomes.\nsetTimeout(() => console.log(19));\nsetImmediate(() => console.log('immediate'));\nsetTimeout(() => console.log(9));\n" },
+    { name: 'I/O callback: immediate vs timeout', code:
+"// Inside an I/O callback, setImmediate always wins:\n// the loop goes poll -> check -> (next tick) timers.\nfs.readFile('config.json', (err, data) => {\n  console.log('read:', data);\n  setTimeout(() => console.log('timeout'), 0);\n  setImmediate(() => console.log('immediate'));\n  process.nextTick(() => console.log('nextTick'));\n});\n\ndb.query('SELECT 1', { delay: 5 }, (err, rows) => {\n  console.log('fast query done', rows);\n});\n" },
+    { name: 'Parallel queries with Promise.all', code:
+"const started = Date.now();\n\nconst users = db.query('SELECT * FROM users', { delay: 80 });\nconst orders = db.query('SELECT count(*) FROM orders', { delay: 40 });\nconst profile = fetch('https://api.example.com/profile');\n\nPromise.all([users, orders, profile])\n  .then(([u, o, res]) => res.json().then((body) => [u, o, body]))\n  .then(([u, o, body]) => {\n    console.log('users', u.length, 'orders', o[0].count);\n    console.log('profile', body.data);\n    console.log('took', Date.now() - started, 'ms');\n  });\n\nsetTimeout(() => console.log('timer at 50ms'), 50);\n" },
+    { name: 'Returning a promise from .then', code:
+"// Returning a promise inside .then costs 2 extra microtask ticks\nPromise.resolve()\n  .then(() => {\n    console.log('A1');\n    return Promise.resolve('A2');\n  })\n  .then((v) => console.log(v));\n\nPromise.resolve()\n  .then(() => console.log('B1'))\n  .then(() => console.log('B2'))\n  .then(() => console.log('B3'))\n  .then(() => console.log('B4'));\n" },
+    { name: 'Errors & rejections', code:
+"async function risky() {\n  await sleep(10);\n  throw new Error('payment gateway timeout');\n}\n\nrisky()\n  .catch((err) => console.error('caught:', err.message))\n  .finally(() => console.log('cleanup'));\n\ndb.query('SELECT * FROM policies', { fail: 'connection refused' })\n  .then((rows) => console.log(rows))\n  .catch((err) => console.error('db error:', err.message));\n" },
+    { name: 'setInterval', code:
+"let count = 0;\nconst id = setInterval(() => {\n  count++;\n  console.log('tick', count);\n  if (count === 3) clearInterval(id);\n}, 100);\n\nsetTimeout(() => console.log('half way'), 150);\n" }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var ta = $('code'), hl = $('hl'), gutter = $('gutter'), hlLine = $('hlLine'), wrap = $('edwrap');
+  var trace = null, idx = 0, timer = null, lastRunCode = null;
+
+  // ---------- editor
+  var KW = /^(?:const|let|var|function|return|if|else|for|while|do|new|async|await|try|catch|finally|throw|class|extends|of|in|typeof|instanceof|true|false|null|undefined|this|break|continue|switch|case|default|yield|delete|void|import|from|export)$/;
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function highlight(src){
+    var re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|('(?:\\.|[^'\\\n])*'?|"(?:\\.|[^"\\\n])*"?|`(?:\\.|[^`\\])*`?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)(?=\s*\()|([A-Za-z_$][\w$]*)/g;
+    var out = '', last = 0, m;
+    while ((m = re.exec(src))) {
+      out += esc(src.slice(last, m.index));
+      if (m[1]) out += '<span class="tk-com">' + esc(m[1]) + '</span>';
+      else if (m[2]) out += '<span class="tk-str">' + esc(m[2]) + '</span>';
+      else if (m[3]) out += '<span class="tk-num">' + m[3] + '</span>';
+      else if (m[4]) out += KW.test(m[4]) ? '<span class="tk-kw">' + m[4] + '</span>' : '<span class="tk-fn">' + m[4] + '</span>';
+      else out += KW.test(m[5]) ? '<span class="tk-kw">' + m[5] + '</span>' : m[5];
+      last = re.lastIndex;
+    }
+    return out + esc(src.slice(last)) + '\n';
+  }
+  var curLine = 0;
+  function renderEditor(){
+    hl.innerHTML = highlight(ta.value);
+    var n = ta.value.split('\n').length, g = '';
+    for (var i = 1; i <= n; i++) g += '<div' + (i === curLine ? ' class="cur"' : '') + '>' + i + '</div>';
+    gutter.innerHTML = g;
+    syncScroll();
+  }
+  function syncScroll(){
+    var x = ta.scrollLeft, y = ta.scrollTop;
+    hl.style.transform = 'translate(' + (-x) + 'px,' + (-y) + 'px)';
+    gutter.style.transform = 'translateY(' + (-y) + 'px)';
+    if (curLine) hlLine.style.top = (10 + (curLine - 1) * 20 - y) + 'px';
+  }
+  function setLine(line){
+    curLine = line || 0;
+    hlLine.hidden = !curLine;
+    var kids = gutter.children;
+    for (var i = 0; i < kids.length; i++) kids[i].className = (i + 1 === curLine) ? 'cur' : '';
+    if (curLine) {
+      var top = 10 + (curLine - 1) * 20, h = ta.clientHeight;
+      if (top < ta.scrollTop + 10 || top > ta.scrollTop + h - 40) ta.scrollTop = Math.max(0, top - h / 3);
+    }
+    syncScroll();
+  }
+  ta.addEventListener('input', function(){ renderEditor(); $('stale').hidden = !(trace && ta.value !== lastRunCode); try{ localStorage.setItem('ell-code', ta.value); }catch(e){} });
+  ta.addEventListener('scroll', syncScroll);
+  ta.addEventListener('keydown', function(e){
+    if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); var s = ta.selectionStart, en = ta.selectionEnd; ta.setRangeText('  ', s, en, 'end'); ta.dispatchEvent(new Event('input')); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
+  });
+
+  // ---------- examples
+  var sel = $('example');
+  EXAMPLES.forEach(function(ex, i){ var o = document.createElement('option'); o.value = i; o.textContent = ex.name; sel.appendChild(o); });
+  sel.addEventListener('change', function(){ ta.value = EXAMPLES[sel.value].code; renderEditor(); run(); });
+
+  // ---------- render snapshot
+  var PHASES = [['main','main script'],['micro','microtasks'],['timers','timers'],['pending','pending'],['poll','poll'],['check','check'],['close','close']];
+  function renderPhases(s){
+    var h = '';
+    PHASES.forEach(function(p, i){
+      var on = p[0] === 'micro' ? s.inMicro : (!s.inMicro && s.phase === p[0]);
+      if (p[0] === 'micro' && s.inMicro === false && false) on = false;
+      h += '<span class="pill' + (p[0]==='micro' ? ' micro' : '') + (on ? ' on' : '') + '">' + p[1] + '</span>';
+      if (i === 1) h += '<span class="arrow">│</span>';
+      else if (i > 1 && i < PHASES.length - 1) h += '<span class="arrow">→</span>';
+    });
+    h += '<span class="arrow">↺</span><span class="clock">t = ' + s.now + ' ms</span>';
+    $('phases').innerHTML = h;
+  }
+  function chip(it, hl){
+    return '<div class="chip' + (it.id === hl ? ' fresh' : '') + '"><b>' + esc(it.label) + '</b>' + (it.sub ? '<small>' + esc(it.sub) + '</small>' : '') + '</div>';
+  }
+  function render(){
+    if (!trace) return;
+    var s = trace.snaps[idx];
+    $('stepinfo').textContent = (idx + 1) + ' / ' + trace.snaps.length;
+    $('scrub').max = trace.snaps.length - 1; $('scrub').value = idx;
+    renderPhases(s);
+    var narr = $('narr');
+    narr.className = 'narr' + (s.tone === 'err' ? ' err' : '');
+    $('narrStep').textContent = '#' + (idx + 1);
+    $('narrText').textContent = s.desc;
+
+    // stack
+    var st = '';
+    if (!s.stack.length) st = '<div class="empty">empty</div>';
+    s.stack.forEach(function(f, i){
+      var top = i === s.stack.length - 1;
+      st += '<div class="frame ' + f.kind + (top ? ' top' : '') + (f.id === s.hl ? ' fresh' : '') + '">' + esc(f.label) +
+        (f.kind !== 'api' && f.line ? '<span class="ln">L' + f.line + '</span>' : '') + '</div>';
+    });
+    $('stack').innerHTML = st;
+
+    // apis
+    var ap = '';
+    if (!s.apis.length) ap = '<div class="empty">nothing pending</div>';
+    s.apis.slice().sort(function(a,b){ return a.end - b.end; }).forEach(function(a){
+      var pct = a.end > a.start ? Math.min(100, Math.max(0, (s.now - a.start) / (a.end - a.start) * 100)) : 100;
+      ap += '<div class="op ' + a.kind + (a.id === s.hl ? ' fresh' : '') + '"><div class="t"><span>' + esc(a.label) + '</span><span>' +
+        (a.kind === 'timer' ? 'fires @ ' : 'done @ ') + a.end + 'ms</span></div><div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div></div>';
+    });
+    $('apis').innerHTML = ap;
+
+    // queues
+    var activeQ = s.inMicro ? null : ({timers:'timersQ', poll:'pollQ', check:'checkQ'})[s.phase];
+    ['ticks','micro','timersQ','pollQ','checkQ'].forEach(function(q){
+      var el = $('q-' + q), items = s[q];
+      el.classList.toggle('active', q === activeQ || (s.inMicro && (q === 'ticks' || q === 'micro')));
+      el.querySelector('.chips').innerHTML = items.length ? items.map(function(it){ return chip(it, s.hl); }).join('') : '<div class="empty">empty</div>';
+    });
+
+    // output
+    var o = '<div class="prompt">$ node index.js</div>';
+    for (var i = 0; i < s.out; i++) {
+      var ln = trace.output[i];
+      o += '<div class="ol ' + ln.kind + (i === s.out - 1 && s.tone === 'out' ? ' last' : '') + '"><span class="tx">' + esc(ln.text) + '</span><span class="ts">' + ln.t + 'ms</span></div>';
+    }
+    if (idx === trace.snaps.length - 1) o += '<div class="prompt">' + (s.tone === 'err' ? 'process exited with code 1' : s.tone === 'exit' ? 'process exited with code 0' : '$') + '</div>';
+    var outEl = $('out'); outEl.innerHTML = o; outEl.scrollTop = outEl.scrollHeight;
+    $('outMeta').textContent = s.out + ' of ' + trace.output.length + ' lines';
+
+    setLine(s.line);
+    $('prev').disabled = $('first').disabled = idx === 0;
+    $('next').disabled = $('last').disabled = idx === trace.snaps.length - 1;
+  }
+
+  // ---------- run / playback
+  function showError(msg){
+    stop();
+    trace = null;
+    $('narr').className = 'narr err'; $('narrStep').textContent = 'error'; $('narrText').textContent = msg;
+    $('out').innerHTML = '<div class="prompt">$ node index.js</div><div class="ol error"><span class="tx">' + esc(msg) + '</span></div>';
+    ['stack','apis'].forEach(function(id){ $(id).innerHTML = '<div class="empty">—</div>'; });
+    $('stepinfo').textContent = '0 / 0';
+    setLine(0);
+  }
+  function run(){
+    stop();
+    if (typeof Babel === 'undefined') { showError('The code parser (Babel) could not load. Check your connection and reload the page.'); return; }
+    try {
+      trace = ELEngine.simulate(ta.value, { slowStart: $('slow').checked });
+    } catch (e) {
+      var m = String(e && e.message || e).replace(/^unknown file: /, '');
+      showError('SyntaxError: ' + m.split('\n')[0]);
+      var lm = m.match(/\((\d+):\d+\)/); if (lm) setLine(+lm[1]);
+      return;
+    }
+    lastRunCode = ta.value; $('stale').hidden = true;
+    idx = 0; render(); play();
+  }
+  function go(i){ if (!trace) return; idx = Math.max(0, Math.min(trace.snaps.length - 1, i)); render(); }
+  function setPlayIcon(p){ $('playIcon').innerHTML = p ? '<path d="M4 3h3v10H4zM9 3h3v10H9z"/>' : '<path d="M4 2.5v11l9-5.5z"/>'; }
+  function play(){
+    if (!trace) return;
+    if (idx >= trace.snaps.length - 1) idx = 0;
+    stop(); setPlayIcon(true);
+    timer = setInterval(function(){
+      if (idx >= trace.snaps.length - 1) { stop(); return; }
+      go(idx + 1);
+    }, +$('speed').value);
+  }
+  function stop(){ if (timer) clearInterval(timer); timer = null; setPlayIcon(false); }
+  $('run').onclick = run;
+  $('play').onclick = function(){ if (!trace) return run(); timer ? stop() : play(); };
+  $('next').onclick = function(){ stop(); go(idx + 1); };
+  $('prev').onclick = function(){ stop(); go(idx - 1); };
+  $('first').onclick = function(){ stop(); go(0); };
+  $('last').onclick = function(){ stop(); go(Infinity); };
+  $('scrub').oninput = function(){ stop(); go(+this.value); };
+  $('slow').onchange = function(){ run(); };
+  $('speed').onchange = function(){ if (timer) play(); };
+  document.addEventListener('keydown', function(e){
+    if (e.target === ta || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); stop(); go(idx + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); stop(); go(idx - 1); }
+    else if (e.key === ' ') { e.preventDefault(); $('play').click(); }
+  });
+
+  // ---------- boot
+  var saved = null; try { saved = localStorage.getItem('ell-code'); } catch(e){}
+  ta.value = saved || EXAMPLES[0].code;
+  renderEditor();
+  function boot(){
+    if (typeof Babel === 'undefined') return setTimeout(boot, 150);
+    try { trace = ELEngine.simulate(ta.value, { slowStart: $('slow').checked }); lastRunCode = ta.value; idx = 0; render(); }
+    catch (e) { run(); }
+  }
+  renderPhases({ phase: 'main', inMicro: false, now: 0 });
+  boot();
+})();
+</script>
+
+</body></html>
